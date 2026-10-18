@@ -3,4 +3,4 @@
 # (glass capsule, layer engine, sun-button panel).
 - insert:
     - id: ui-liquid-glass
-      name: '@starry/dsh-ui-liquid-glass'
+      name: '@istarry/dsh-ui-liquid-glass'

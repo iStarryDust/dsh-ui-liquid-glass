@@ -1,5 +1,5 @@
 {
-  "name": "@starry/dsh-ui-liquid-glass",
+  "name": "@istarry/dsh-ui-liquid-glass",
   "description": "全液态玻璃界面 ui-liquid-glass + 壁纸/主题/控件控制器",
   "version": "0.1.0",
   "icon": "./icon.svg",
@@ -23,12 +23,18 @@
     "locale/*.json",
     "icon.svg",
     "LICENSE",
+    "README*.md",
     "cordis.patch.yml",
     "lib/index.js",
     "lib/client.js",
     "lib/types/**/*.d.ts",
     "assets/**"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iStarryDust/dsh-ui-liquid-glass.git"
+  },
+  "homepage": "https://github.com/iStarryDust/dsh-ui-liquid-glass",
   "license": "MIT",
   "keywords": [
     "dsh",
