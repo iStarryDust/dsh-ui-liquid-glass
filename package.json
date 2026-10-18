@@ -11,6 +11,10 @@
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
     "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json",
     "./cordis.patch.yml": "./cordis.patch.yml"
@@ -19,14 +23,11 @@
     "locale/*.json",
     "icon.svg",
     "LICENSE",
-    "lib/index.js",
     "cordis.patch.yml",
+    "lib/index.js",
+    "lib/client.js",
     "lib/types/**/*.d.ts",
-    "packages/client-ui-liquid-glass/package.json",
-    "packages/client-ui-liquid-glass/lib/index.js",
-    "packages/client-ui-liquid-glass/lib/client.js",
-    "packages/client-ui-liquid-glass/lib/types/**/*.d.ts",
-    "packages/client-ui-liquid-glass/assets/**"
+    "assets/**"
   ],
   "license": "MIT",
   "keywords": [
@@ -39,15 +40,25 @@
     "theme",
     "wallpaper"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1"
   },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
     }
   },
-  "dependencies": {
-    "@deepseek-ai/dsh-client-ui-liquid-glass": "file:./packages/client-ui-liquid-glass"
+  "scripts": {
+    "bundle": "tsdown",
+    "watch": "tsdown --watch"
   }
 }
