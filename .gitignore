@@ -1,0 +1,16 @@
+# 依赖
+node_modules/
+.pnpm-store/
+
+# 构建缓存
+*.tsbuildinfo
+.tsdown/
+
+# 系统垃圾
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 本地临时/审计产物
+*.log
+.lg-audit/

@@ -1,0 +1,13 @@
+# 统一换行符，避免 Windows/Linux 协作时整文件 diff
+* text=auto eol=lf
+
+# 二进制资源不做换行转换
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.webp binary
+*.svg text eol=lf

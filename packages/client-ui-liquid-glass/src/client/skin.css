@@ -1,0 +1,581 @@
+/* The layered skin. Everything is driven by --lg-* custom properties the
+   property panel writes on <body>; no selector below names a plugin — the hooks
+   are the app's own theme tokens (which every surface composes from, so any
+   future plugin inside these regions inherits the skin) plus structural layout
+   locals and ARIA roles.
+
+   Two ways a layer gets its glass:
+
+   1. On a plugin-owned surface (columns, pages): [data-lg-surface] elements are
+      fixed-position boxes the engine tracks over the app's own element. They
+      sit ABOVE the wallpaper and BELOW every app surface (the whole stack is at
+      z-index -1 under [data-lg-surfaces]), so the columns paint no fill of
+      their own and the glass reads as a sheet between the wallpaper and the UI.
+
+      This indirection is not decoration. A backdrop-filter placed on an element
+      that already has a filtered ancestor stops honouring its own filter
+      functions — measured in Chromium, blur/saturate/brightness/url() in a
+      nested chain all render identically, so every backdrop knob looks dead.
+      Keeping the columns' glass on a sibling surface means the rows, pages, and
+      composer cards inside them have no filtered ancestor left.
+
+   2. On the app's own element (composer card, conversation header, menus):
+      those layers have to follow content that moves or are already carried by
+      the shell's own surface, so they consume --lg-<layer>-* directly.
+
+      The 高亮条 is a third shape: ONE plugin-owned flying lens (flow-lens.ts)
+      shared by every sidebar selection, so the candidates are cleared to
+      transparent and never carry glass themselves.
+
+   The doubled attribute selector and !important below decouple the token
+   overrides from stylesheet injection order: the shell injects its theme
+   chunks at runtime, and an equal-specificity tie would otherwise let the
+   official token definitions win.
+
+   Every layer also carries the capsule's rim shading: rimmed surfaces stamp
+   the RIM_SHADOW constant inline (surface.ts), and the element-style layers
+   read the same constant from --lg-rim-shadow, which the engine publishes on
+   <body>. Tint, backdrop chain, radius, rim — one glass contract everywhere. */
+
+/* Layer 0 — wallpaper: the time × scheme photo set, painted by a real
+   fixed-position host div (skin.ts mounts it) one level below the glass
+   surfaces. A fixed host keeps the photo stationary under scroll and paints
+   reliably under every compositor configuration, where a body-level fixed
+   background silently fails to draw behind backdrop-filter layers on some GPU
+   paths. */
+
+[data-lg-wallpaper] {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background-color: var(--lg-wall-base);
+  background-size: cover;
+  background-position: center;
+  /* The image URL is inlined by the engine per apply (paintWallpaper). */
+}
+
+/* The wallpaper host lives behind the body's own paint: clear the body so the
+   canvas never covers it (body's background propagates to the root canvas,
+   which would otherwise paint under nothing but above a negative-z child). */
+body[data-lg-skin][data-lg-skin] {
+  background: transparent !important;
+}
+
+/* The surface stack: one plugin-owned layer between the wallpaper and the app,
+   holding one box per glassed surface layer. */
+[data-lg-surfaces] {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+[data-lg-surface] {
+  position: fixed;
+  pointer-events: none;
+  /* Tint, backdrop chain, radius, and the rim+ring shadow are stamped inline
+     by the engine, so a new surface layer needs no rule here. */
+}
+
+/* An 'inside' sheet (layers.ts placement): mounted as the host's first child,
+   filling it. `z-index: -1` puts it above the host's own background and below
+   the host's content, and — the point of the whole mode — it is a SIBLING of
+   that content, so the controls inside the host are not nested in a filtered
+   subtree and can carry their own backdrop-filter. */
+[data-lg-surface][data-lg-surface-mode='inside'] {
+  position: absolute;
+  inset: 0;
+}
+
+/* The host of an inside sheet hands its fill over: the sheet paints the tint,
+   so a background (or a token-driven fill) on the element would double it. */
+[data-lg-glass-host] {
+  background: transparent !important;
+}
+
+/* A tint alone still needs somewhere to draw: give the layout frame and every
+   column a transparent fill so the surface below shows through. The columns keep
+   their theme tokens intact (the Windows caption strip still composes them). */
+body[data-lg-skin] [class*='frame']:has(> [class*='sidebarCol'], > [class*='centerCol'], > [class*='rightbarCol']),
+body[data-lg-skin] [class*='sidebarCol'],
+body[data-lg-skin] [class*='centerCol'],
+body[data-lg-skin] [class*='rightbarCol'] {
+  background: transparent !important;
+}
+
+/* The shell's column separators are painted on the columns themselves — above
+   the glass stack — so they read as a hard line over the sheets at any tint,
+   and with rounded corners they cut straight through the curve. The glass
+   edges are the separators now: the sidebar's own rule, the darwin centre's,
+   and the right dock's first-pane border all go transparent. Colour only —
+   the widths stay, so nothing shifts. */
+body[data-lg-skin] [class*='sidebarCol'],
+body[data-lg-skin] [class*='centerCol'] {
+  border-right-color: transparent !important;
+  border-left-color: transparent !important;
+}
+
+body[data-lg-skin] [data-dockkit-host='dock'][data-dockkit-column='0'] > [class*='tabHost'] {
+  border-left-color: transparent !important;
+}
+
+/* Layer 1 — panels. The shell's own fill tokens become the glass tints, so
+   every surface composing them — present or future — turns glass without
+   naming it. Layer 2 — composer card. Layer 3 — the selection lens. Layer 4 —
+   menus, selectors, and settings surfaces. */
+
+body[data-lg-skin][data-lg-skin] {
+  --dsw-alias-bg-base: transparent !important;
+  --dsw-alias-bg-layer-1: var(--lg-menu-tint) !important;
+  /* NOT the sidebar tint (2026-10-13.20): the shell paints this token on the
+     sidebar's own root, and the sidebar's glass surface already paints the same
+     tint over the same box — so the column was washed TWICE, and the two fills
+     do not have the same extent, which read as a whiter BLOCK with an edge
+     rather than a uniform sheet. One carrier only: the surface. */
+  --dsw-specific-sidebar-fill: transparent !important;
+  --dsw-specific-input-major: var(--lg-input-tint) !important;
+  /* Consumers verified against the shell: the settings dialog's active nav
+     cell and the question-composer badge. The sidebar's own rows paint hover
+     and selection with the interactive-hover token — one token for both
+     states, so it cannot be retinted (see layers.ts); the rows' glass comes
+     from the selection-bar rule below instead. */
+  --dsw-specific-sidebar-nav-item-active: var(--lg-highlight-tint) !important;
+  --dsw-specific-sidebar-nav-item-active-accent: var(--lg-highlight-tint) !important;
+  /* 随包字体: HarmonyOS Sans SC（拉丁 + 简中同一套字形；@font-face 由 skin.ts 的
+     mount 注入，经插件的 /ui-liquid-glass/fonts 路由供图）。字体不进系统——皮肤卸载
+     即随 data-lg-skin 一起消失，回退栈只服务于首帧加载与无 Web 服务的端。 */
+  --dsw-font-family: 'HarmonyOS Sans SC', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', sans-serif !important;
+  /* 悬停: the shell's two hover tokens (the interactive-hover alias —
+     sidebar rows, panel rows, buttons app-wide — and the settings nav's own)
+     read one tint, so the 按钮 tab's 色调/色调饱和度+悬停浓度 retune every
+     mouse-hover fill at once. */
+  --dsw-alias-interactive-bg-hover: var(--lg-hover-tint) !important;
+  --dsw-specific-sidebar-nav-item-hover: var(--lg-hover-tint) !important;
+  /* Menu glass: the tint plus the official menu chain and the menu tier radii
+     (MenuSurface composes exactly these tokens). The settings page paints
+     itself with the elevated layer tokens, so they follow the menu glass too. */
+  --dsw-menu-surface-fill: var(--lg-menu-tint) !important;
+  --dsw-specific-menu: var(--lg-menu-tint) !important;
+  --dsw-specific-selector: var(--lg-menu-tint) !important;
+  --dsw-alias-bg-layer-2: var(--lg-menu-tint) !important;
+  --dsw-alias-bg-layer-3: var(--lg-menu-tint) !important;
+  --dsw-menu-backdrop-filter: var(--lg-menu-backdrop) !important;
+  --dsw-radius-lg: var(--lg-menu-radius) !important;
+  --dsw-radius-md: var(--lg-menu-radius) !important;
+  /* The settings dialog's own panel radius is a tier of its own in the shell
+     (--dsw-radius-panel) — the 菜单 圆角 knob is what the user expects to
+     drive the expanded settings page. */
+  --dsw-radius-panel: var(--lg-menu-radius) !important;
+}
+
+/* 主题色 (主题 category): the shell's whole default-colour chain resolves through
+   the static deepseek ramp (`brand-primary` → 450, `link` / `state-business-primary`
+   → 400/500), so pointing those four steps at the chosen preset re-colours every
+   place the shell paints its own colour — buttons included: the 后台任务 panel's
+   actions, the settings' update row, dockkit's accents. The layer this skin owns
+   (新会话 → the new-session pill and the settings' value buttons) takes the same
+   colour through its tint instead (layers.ts `themeTint`). 官方蓝 is the default
+   and publishes nothing, so the gate stays down and the shell's own values stand. */
+body[data-lg-theme][data-lg-theme] {
+  --dsw-static-deepseek-400: var(--lg-theme-400) !important;
+  --dsw-static-deepseek-450: var(--lg-theme-450) !important;
+  --dsw-static-deepseek-500: var(--lg-theme-500) !important;
+  --dsw-static-deepseek-600: var(--lg-theme-600) !important;
+}
+
+/* 主题色 also colours 一个官方徽标：Agent 预设卡片里的「新任务默认」（ui-primitives 的
+   Tag，`[data-tone='solid']`）。它默认取 `--dsw-alias-label-primary` 当底色（中性反色块），
+   所以不随主题走；这里换成官方的品牌填充 token（发送键用的那一支，同样由静态色阶推导 ⇒
+   四档预设自动跟随，`官方蓝` 下就是壳层自己的蓝）+ 官方那套静态白字（见 InputBar 的 .primary：
+   设计上就是静态白，不跟前景 token）。钩子用官方自己的 `[data-agent-preset-id]`。 */
+body[data-lg-skin] [data-agent-preset-id] [data-tone='solid'] {
+  background: var(--dsw-alias-button-info-fill) !important;
+  color: #fff !important;
+}
+
+/* 文字颜色 (主题 category): active only while the engine raises the
+   data-lg-text gate, so an untouched text color keeps the shell's own palette
+   — including its live light/dark switches. The `!important` stylesheet rule
+   outranks the theme presenter's inline token writes on <body>. */
+body[data-lg-text][data-lg-text] {
+  --dsw-alias-label-primary: var(--lg-text-primary) !important;
+  --dsw-alias-label-secondary: var(--lg-text-secondary) !important;
+  --dsw-alias-label-tertiary: var(--lg-text-tertiary) !important;
+  --dsw-alias-label-caption: var(--lg-text-caption) !important;
+}
+
+/* Layer 2 — the composer card. Its glass rides an INSIDE sheet (layers.ts
+   placement 'inside'), because the card HOLDS the 按钮 layer's capsules (＋附件 /
+   模型 / 工作区 / 发送): while the card carried the filter itself, each of them
+   sampled an empty backdrop through the nesting and the filter's dither stage
+   turned that emptiness into an opaque black plate. The rim — the capsule's
+   shading plus the decorative ring — stays on the element (the sheet is sized
+   by `inset: 0`, an outer shadow on it would be clipped by the card), and the
+   element paints its own tint and chain only while no sheet is bound to it.
+   The sheet keeps the layer's own chain (displacement included, like every
+   other层): a sample it pushes outside the box comes back transparent, not
+   black, because the chain's dither stage preserves the backdrop's alpha. */
+body[data-lg-skin] [class*='centerCol'] [class*='card']:has(textarea, [contenteditable='true'], [contenteditable='']):not([data-question-key] > *) {
+  border-radius: var(--lg-input-radius);
+  box-shadow: var(--lg-input-rim, var(--lg-rim-shadow));
+}
+
+body[data-lg-skin] [class*='centerCol'] [class*='card']:has(textarea, [contenteditable='true'], [contenteditable='']):not([data-question-key] > *):not([data-lg-glass-host]) {
+  background: var(--lg-input-tint);
+  backdrop-filter: var(--lg-input-backdrop);
+}
+
+/* 提问卡（ui-user-questions 的 QuestionComposer）：提问时它**替换**输入栏（composer 槽是
+   chain），所以是独立的一层、有自己的页签。它内里的选项行/圆点键按 .13 的约定不吃胶囊，
+   玻璃只落在卡本体上。卡片自身带 backdrop-filter 不会嵌套失效——它的祖先里没有滤镜子树
+   （对话区的玻璃在兄弟表层上）。 */
+body[data-lg-skin] [data-question-key] > [class*='card'] {
+  border-radius: var(--lg-question-radius);
+  box-shadow: var(--lg-question-rim, var(--lg-rim-shadow));
+}
+
+body[data-lg-skin] [data-question-key] > [class*='card']:not([data-lg-glass-host]) {
+  background: var(--lg-question-tint);
+  backdrop-filter: var(--lg-question-backdrop);
+}
+
+/* Layer 2½ — the button capsules (按钮 layer): ONLY the composer card's own
+   controls — the four in the input bar (＋ / 工作区 / 模型 / 发送). Everything
+   else the layer used to dress is left to the shell's own styling: the sidebar
+   rows' icon buttons, the right dock's controls, the conversation header's
+   actions, the hero workspace row (and its grouped capsule), a message's hover
+   actions, and the citation pills.
+
+   The reason is cost, measured: every glassed control is a backdrop-filter of
+   its own, so the COUNT is the bill — and a transcript puts one on every
+   message's action row (the replica's 8-message scene carried 238 glassed
+   elements; the composer alone is four). The wider `:is(button, [role='button'],
+   [aria-haspopup])` is deliberate: the two selects on the right are
+   slot-rendered triggers from other plugins (a <button> today, but the ARIA
+   hook catches whatever shape they take — `+` itself carries
+   `aria-haspopup='listbox'`). The same controls are the layer's `hosts` in layers.ts
+   (BUTTON_AREAS): the first live one is where the refraction filter is measured,
+   because a CSS-dressed layer has no single element of its own. Keep the two
+   lists in step — a control dressed here without a host there loses
+   折射强度/边缘柔边. */
+body[data-lg-skin] [class*='centerCol'] [class*='card']:has(textarea, [contenteditable='true'], [contenteditable='']):not([data-question-key] > *) :is(button, [role='button'], [aria-haspopup]):not(:has([class*='seatLabel'])) {
+  background: var(--lg-buttons-tint);
+  border-radius: var(--lg-buttons-radius);
+  backdrop-filter: var(--lg-buttons-backdrop);
+  box-shadow: var(--lg-buttons-rim, var(--lg-rim-shadow));
+}
+
+/* 悬停玻璃: the hover fills are a tint wash, not a full capsule — transient
+   hover states must not pay for a backdrop-filter on every mouse-over (and
+   the settings nav cell nests inside the dialog's own glass). The colour
+   comes from the 按钮 layer's 色调/色调饱和度 and the strength from 悬停浓度;
+   the flat token (--dsw-alias-interactive-bg-hover to --lg-hover-tint)
+   tints the small buttons hovers app-wide, and the surfaces below get the
+   wash plus the capsule radius on hover: sidebar rows of every list, the
+   nav panel rows, and the settings nav cells. */
+body[data-lg-skin] [class*='sidebarCol'] :is([role='treeitem'], [class*='panelRow']):hover,
+body[data-lg-skin] [class*='sidebarCol'] li:not(:has(> button)):not(:has([role='treeitem'], [class*='panelRow'])):hover,
+body[data-lg-skin] [data-shortcut-modal='settings'] [class*='navCell']:hover {
+  background: var(--lg-hover-tint);
+  border-radius: var(--lg-buttons-radius);
+}
+/* The li layer is the FALLBACK for lists whose rows are plain li elements. A
+   list that nests a dedicated row element inside the li (the agent suite's
+   chat history: li > div[role='treeitem'].chatRow — its buttons sit deeper,
+   so `:has(> button)` never saw them) used to match BOTH rules above and one
+   mouse-over painted twice: the li wrapper AND the inner row. The li now
+   yields whenever a treeitem/panelRow lives inside — the row rule alone
+   paints the hover, one box, one wash. */
+/* Layer 2 — the conversation header: the resident strip above the chat
+   (breadcrumbs, header actions, the view tabs). The shell lays it out as
+   ordinary column chrome ABOVE the scrollport, so nothing ever paints behind
+   it and a glass there would only refract the wallpaper. The two rules below
+   turn it into a floating bar instead: the body slides up behind it and the
+   scrollport gains a matching top inset, so the transcript scrolls UNDER the
+   glass (content start stays pinned to the header's bottom edge at every
+   header height — tabbed 76px, blank ~40px). The header outranks the
+   scrollport's own stacking ranks (sticky code banners 6, composer seat 7,
+   back-to-bottom 8) so nothing scrolling under paints over it. The shell
+   paints no fill of its own on the strip; its 圆角 knob defaults to 0 because
+   the bar sits flush against the column's top and side edges.
+
+   Like the composer card, the strip's glass rides an INSIDE sheet: the header
+   holds 按钮 capsules (its own action buttons), and a filter on the header
+   itself would make every one of them sample an empty backdrop — i.e. no glass
+   at all. The element keeps the layout-critical `position`/`z-index` (the
+   slide-under depends on them) and the rim. */
+body[data-lg-skin] [class*='centerCol'] header:has(> [data-conversation-header-leading]) {
+  position: relative;
+  z-index: 10;
+  border-radius: var(--lg-convheader-radius);
+  box-shadow: var(--lg-convheader-rim, var(--lg-rim-shadow));
+}
+
+body[data-lg-skin] [class*='centerCol'] header:has(> [data-conversation-header-leading]):not([data-lg-glass-host]) {
+  background: var(--lg-convheader-tint);
+  backdrop-filter: var(--lg-convheader-backdrop);
+}
+
+body[data-lg-skin] [class*='centerCol'] [data-conversation-content] {
+  margin-top: -76px;
+}
+
+body[data-lg-skin] [class*='centerCol'] [data-conversation-scroll] {
+  padding-top: 76px;
+}
+
+/* Layer 3 — the selection lens (高亮条): the sidebar's selections share ONE
+   stop and the glass flies between them (flow-lens.ts), so the 插件 position
+   and the 聊天记录 position can never glow at once.
+
+   The STOP is authoritative: the flow marks the active row with
+   [data-lg-flow-target] and THAT ROW carries the glass — the same element
+   paint this skin always used (above every app fill, text crisp, nothing
+   animated involved), so the resting highlight cannot silently vanish.
+
+   The FLIGHT is decorative: on a stop change the lens spawns on the old box
+   and springs to the new one above the content (refracting what it crosses),
+   then merges into the destination's row glass and hides. At rest the lens
+   does not exist on screen, so resting text never sits under glass. */
+[data-lg-flowhost] {
+  position: fixed;
+  inset: 0;
+  /* Above the settings overlay (z 1000): the flight must be visible over the
+     dialog it flies in — at rest the lens is display:none, so nothing else
+     ever paints from this layer. */
+  z-index: 1100;
+  pointer-events: none;
+}
+
+[data-lg-flow-lens] {
+  position: fixed;
+  pointer-events: none;
+  will-change: transform;
+  background: var(--lg-highlight-tint);
+  backdrop-filter: var(--lg-highlight-backdrop);
+  border-radius: var(--lg-highlight-radius);
+  box-shadow: var(--lg-highlight-rim, var(--lg-rim-shadow));
+}
+
+/* The trailing droplet: same glass, no rim — it is a bead, not a panel. */
+[data-lg-flow-drop] {
+  position: fixed;
+  pointer-events: none;
+  will-change: transform;
+  border-radius: 50%;
+  background: var(--lg-highlight-tint);
+  backdrop-filter: var(--lg-highlight-backdrop);
+}
+
+/* The stop: the marked row IS the highlight — the capsule's full glass
+   contract, identical to what the per-row paint always was. */
+body[data-lg-skin] [data-shortcut-modal='settings'] [class*='navCell'][aria-current='true'] {
+  background: transparent !important;
+}
+
+/* 高亮格的控制尺寸：把设置里的导航格整体缩小一点（横向留 6px、行高 40→34），
+   让玻璃块本身小一圈、边缘有呼吸位。缩的是**每一格**而不是只缩被标记的那一格，
+   否则选中项一移动，整列宽度就会跟着跳。内边距跟着减，14px 字/22px 行高仍居中。
+   这里只动盒子尺寸，不动高亮条那套玻璃契约（tint / 链 / rim 全部照旧）。 */
+body[data-lg-skin] [data-shortcut-modal='settings'] [class*='navCell'] {
+  height: 34px !important;
+  padding-block: 6px !important;
+  margin-inline: 6px !important;
+}
+
+/* 给导航列底部留出投影落点（2026-10-13.22）。壳层的 `.nav` 是
+   `padding: 22px 12px 0`（底部 0）、`.navList` 又是内容高度，于是列盒与最后一行齐平；
+   而高亮格的 rim 有一段**外投影**（`0 4px 8px`，向下伸约 12px）——最后一行恰好是选中项时，
+   那圈投影就被 `.navList` 的盒底边齐平切掉一小块（实测：格子底 650 ＝ 列盒底 650，
+   面板底 670 还有余量，所以切它的是列盒、不是面板）。留 14px 让投影完整落地：
+   格子几何一行不改，只是最后一格位置上移一点；`.panel` 那 20px 余量足够吸收。 */
+body[data-lg-skin] [data-shortcut-modal='settings'] [class*='navList'] {
+  padding-bottom: 14px;
+}
+
+body[data-lg-skin] [data-shortcut-modal='settings'] [class*='navCell'][data-lg-flow-target][data-lg-flow-target] {
+  /* The cell carries the layer's own chain, exactly like a sidebar row — the
+     two zones are ONE mechanism now, and that is the point: with the glass on
+     the cell itself, the nav label paints ABOVE it and stays crisp, where a
+     sheet floating over the dialog bends it.
+
+     It may do so because the cell is NOT inside a filtered subtree: the panel's
+     glass lives on a sibling inside-sheet (layers.ts `placement: 'inside'` — a
+     child of the dialog, a sibling of its content), and the dialog's own mask
+     (`.mask`, which does carry `--dsw-mask-blur`) is a sibling of the panel.
+     The dialog element itself has no filter while a sheet is bound — see the
+     `[role='dialog']:not([data-lg-glass-host])` rule below. */
+  background: var(--lg-highlight-tint) !important;
+  backdrop-filter: var(--lg-highlight-backdrop) !important;
+  border-radius: var(--lg-highlight-radius);
+  box-shadow: var(--lg-highlight-rim, var(--lg-rim-shadow));
+}
+
+/* The marked stop is the ONLY paint on its row: the shell's own selected
+   fill is cleared unconditionally above (settings nav and sidebar alike),
+   and the mark rules — same specificity as the clear, declared after,
+   attribute doubled per the file convention — re-lay the glass alone. No
+   base colour under the capsule. The rim rides the layer's own variable so
+   边缘立体/描边 shape the resting stop exactly like the capsule (and the
+   landing lens, which carries the same string — the handoff stays
+   pixel-identical). */
+body[data-lg-skin] [class*='sidebarCol'] [data-lg-flow-target][data-lg-flow-target] {
+  background: var(--lg-highlight-tint) !important;
+  backdrop-filter: var(--lg-highlight-backdrop) !important;
+  border-radius: var(--lg-highlight-radius);
+  box-shadow: var(--lg-highlight-rim, var(--lg-rim-shadow));
+}
+
+/* The unmarked candidates: cleared, so the shell's own fill can neither
+   double the tint under the lens nor read as a second highlight beside it. */
+body[data-lg-skin] [class*='sidebarCol'] :is([aria-selected='true'], [aria-current='page'], [data-lg-current]) {
+  background: transparent !important;
+}
+
+/* Layer 3½ — the settings dialog's left nav joins the flow: the active cell
+   is a FLOW_STOP (the mark flies between sections; plugin-added sections
+   included — the nav is the slot registry's). The active cell's own fill
+   token is cleared so the mark is the only paint (otherwise it doubles under
+   the arriving glass); during the flight the nav shows no fill, which is the
+   travelling-glass read. Zones are independent: the sidebar keeps its own
+   mark while settings is open.
+
+   The 常亮胶囊 type, ONE category under the 新会话 sliders — every white
+   capsule surface the settings page offers, named by kind:
+   - 值选择控件: the config-form selector stems (工作区内修改 / 中文 …);
+   - 下拉切换: the 内置插件 view switcher (标准模式（默认） …);
+   - 数值胶囊: the font-size stepper's VALUE pill (13 …) — the number is
+     the capsule, the +/- arrows beside it stay native;
+   - 行动作按钮: a settings row's own action button (编辑快捷键 …);
+   - 选中的选项面: the selected theme cube (浅色/深色/跟随系统) and the
+     chosen agent-preset CARD WRAPPER (cardActive — title, text and the
+     模式说明/如何使用 foot are one capsule through their parent).
+   These stems/states are the shared settings kits' own names, so
+   plugin-added sections inherit the looks with no per-plugin code. The
+   rules sit BEFORE the flow-mark rule below: a marked nav cell ties on
+   specificity and the later rule must be the mark's own (its radius
+   follows 高亮条, not 新会话). */
+body[data-lg-skin] [data-shortcut-modal='settings'] :is(
+  [class*='navCell'],
+  /* SUBSTRING MATCH TRAP: `[class*='switcher']` also hits `switcherLabel`, and
+     `[class*='stepper']` hits a stepper's own `value` span — the shell names the
+     inner parts after their control. Those descendants then got the capsule's
+     CHAIN AND RIM while the clear rule below only zeroed their background, so a
+     value read as a frosted box sitting inside the pill (measured on the
+     settings' preset switcher). Excluding them here is the prevention; the clear
+     rule stays as the belt-and-braces for any inner name we have not met yet. */
+  [class*='selector']:not([class*='Label']),
+  [class*='switcher']:not([class*='Label']),
+  [class*='stepper']:not([class*='value']),
+  [class*='setting'] > button,
+  [class*='themeCube'][class*='selected'],
+  [class*='cardActive']
+) {
+  border-radius: var(--lg-newchat-radius);
+}
+
+body[data-lg-skin] [data-shortcut-modal='settings'] :is(
+  [class*='selector'],
+  [class*='switcher'],
+  [class*='stepper'],
+  [class*='setting'] > button,
+  [class*='themeCube'][class*='selected'],
+  [class*='cardActive']
+) {
+  background: var(--lg-newchat-tint);
+  backdrop-filter: var(--lg-newchat-backdrop);
+  box-shadow: var(--lg-newchat-rim, var(--lg-rim-shadow));
+}
+
+/* The switch (代码工作工具 …, any role=switch in settings): ON reads as the
+   liquid capsule — the 新会话 wash over the track; the pill shape and the
+   thumb stay the shell's own, so on/off never loses its contrast. Off keeps
+   the native track. */
+/* The switcher/value innards: the kits wrap the LABEL in its own span —
+   left alone it carries a fill and the capsule would double-paint (a wash
+   on the text with the box still white). The BOX is the capsule; the text
+   rides transparent inside it. */
+body[data-lg-skin] [data-shortcut-modal='settings'] [class*='switcher'] [class*='Label'],
+body[data-lg-skin] [data-shortcut-modal='settings'] [class*='selector'] [class*='Label'],
+body[data-lg-skin] [data-shortcut-modal='settings'] [class*='stepper'] [class*='value'] {
+  background: transparent !important;
+  /* Not just the fill: an inner part must never wear the glass at all. A
+     `background: transparent` alone left the chain (blur/brightness/url) and the
+     rim shadow painting inside the pill, which is what read as "glass on the
+     text". */
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+body[data-lg-skin] [data-shortcut-modal='settings'] [role='switch'][aria-checked='true'] {
+  background: var(--lg-newchat-tint);
+  backdrop-filter: var(--lg-newchat-backdrop);
+  box-shadow: var(--lg-newchat-rim, var(--lg-rim-shadow));
+}
+
+/* The marked nav cell's only paint is the doubled-attribute mark rule above;
+   the .20-era rule that re-painted it here (with a nested backdrop chain)
+   was removed — it black-boxed the capsule inside the dialog's glass. */
+
+/* Layer 3½ — the new-conversation highlight (常驻高亮): the shell's 新会话
+   pill in every state plus every sidebar row whose accessible label names the
+   same action — the agent-suite's 创建 Agent / 开启新对话 rows among them.
+   The hooks are the app's own contracts: the pill's `newSession` layout local
+   (its label/content/shortcut children share the stem and are excluded) and
+   the panel rows' `aria-label` (the slot label itself), so an absent plugin
+   simply matches nothing and a language switch cannot drop the highlight
+   (case-insensitive matching).
+
+   This layer owns the paint in EVERY state, active included. A 创建 Agent row is
+   also aria-current / aria-selected while active, which used to hand it to the
+   selection bar: that rule doubles its `data-lg-flow-target` attribute, so it
+   outranked this one and a freshly activated row wore the BAR's look instead of
+   the persistent highlight it owns. Two things fix that now, in step:
+   this rule doubles `data-lg-skin` (0,4,2 beats the bar's 0,4,1), and the bar no
+   longer stops on these rows at all (layers.ts `NOT_NEW_CHAT_ROW`) — an action
+   row was never a selection for the flying bar to land on. The pill's own
+   radius token (--dsw-radius-md) is already mapped to the menu layer above;
+   the dedicated rule here hands the pill to its own 圆角 slider instead. */
+body[data-lg-skin][data-lg-skin] [class*='sidebarCol'] :is(
+  [class*='newSession']:not([class*='newSessionLabel']):not([class*='newSessionContent']):not([class*='newSessionShortcut']),
+  button[aria-label='新建会话' i]:not([class*='brand']),
+  button[aria-label='new session' i]:not([class*='brand']),
+  button[aria-label='创建 agent' i],
+  button[aria-label='开启新对话' i],
+  button[aria-label='new chat' i]
+) {
+  background: var(--lg-newchat-tint) !important;
+  backdrop-filter: var(--lg-newchat-backdrop) !important;
+  border-radius: var(--lg-newchat-radius);
+  box-shadow: var(--lg-newchat-rim, var(--lg-rim-shadow)) !important;
+}
+
+/* Layer 4 — dialogs (the settings page is one): the menu glass chain plus the
+   capsule's rim shading; the fill and the tier radii follow the menu tint and
+   radius through the token block above. The 圆角 knob also drives the dialog's
+   own clip (`--dsw-radius-panel`), and the rim stays on the element because the
+   panel's `overflow: hidden` would clip a sheet's outer shadow away.
+
+   The CHAIN, though, cannot stay on the element: a dialog is the biggest
+   container of other glassed controls (the settings nav cell, the config
+   selectors, switchers, steppers, action buttons, theme cubes, preset cards),
+   and a nested backdrop-filter samples an empty backdrop — Chromium isolates
+   it — which the filter's own dither stage then turns into an OPAQUE BLACK
+   plate — and, with the dither stage no longer pinning an empty sample opaque,
+   no glass either. So the glass rides an INSIDE sheet (layers.ts placement
+   'inside'), and the element keeps the chain only while no sheet is bound: an
+   unbound dialog still reads as glass instead of going bare. */
+body[data-lg-skin] [role='dialog'] {
+  border-radius: var(--lg-menu-radius);
+  box-shadow: var(--lg-menu-rim, var(--lg-rim-shadow));
+}
+
+body[data-lg-skin] [role='dialog']:not([data-lg-glass-host]) {
+  background: var(--lg-menu-tint);
+  backdrop-filter: var(--lg-menu-backdrop);
+}
+
+/* Layer 4 — the wallpaper and the surface stack are the last things this sheet
+   has to say: the menus and dialogs already carry their glass from the token
+   block above. */

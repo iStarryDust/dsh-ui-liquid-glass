@@ -1,0 +1,318 @@
+/* The liquid-glass property panel: a bottom-right sun button plus a compact
+   glassy slider sheet. Everything hangs off document.body, outside the app's
+   React tree, so plain fixed positioning and a z-index above the capsule
+   (9999) is the whole story. */
+
+.button {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 10001;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(22, 24, 32, 0.72);
+  color: #ffd479;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(12px);
+  transition: background 0.15s ease, transform 0.15s ease, color 0.15s ease;
+}
+
+.button:hover {
+  background: rgba(38, 42, 56, 0.85);
+  transform: scale(1.05);
+}
+
+.buttonActive {
+  color: #fff;
+  background: rgba(72, 80, 108, 0.9);
+}
+
+.buttonSvg {
+  display: block;
+}
+
+.panel {
+  position: fixed;
+  right: 18px;
+  bottom: 72px;
+  z-index: 10001;
+  width: 292px;
+  max-height: min(72vh, 620px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 14px 16px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(20, 22, 30, 0.86);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  color: #e8eaf2;
+  font-size: 12px;
+  line-height: 1.4;
+  font-family: -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  user-select: none;
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+/* The two top-level category chips (主题 / 控件): full-width halves, a step
+   above the layer chip strips. */
+.category {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.category .tab {
+  flex: 1;
+  padding: 5px 0;
+  font-size: 12px;
+  text-align: center;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 2px;
+}
+
+.section {
+  margin-bottom: 4px;
+}
+
+.sectionTitle {
+  margin: 8px 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #9aa1b5;
+}
+
+.tab {
+  padding: 3px 8px;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: #b6bccd;
+  cursor: pointer;
+  font-size: 11px;
+  font-family: inherit;
+}
+
+.tab:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.tabActive {
+  color: #14161b;
+  background: #f5b942;
+  border-color: #f5b942;
+  font-weight: 600;
+}
+
+.panelHidden {
+  display: none;
+}
+
+.head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.close {
+  border: none;
+  background: none;
+  color: #9aa1b5;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 6px;
+}
+
+.close:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.label {
+  /* 68px: the widest label the panel has is 色调饱和度 (five CJK glyphs) — at 56px
+     it wrapped onto two lines and pushed its value out of the column. nowrap so a
+     future longer name clips the row instead of silently re-flowing it. */
+  width: 68px;
+  flex: none;
+  white-space: nowrap;
+  color: #b6bccd;
+}
+
+.range {
+  flex: 1;
+  min-width: 0;
+  height: 18px;
+  margin: 0;
+  accent-color: #f5b942;
+  cursor: pointer;
+}
+
+.value {
+  width: 50px;
+  flex: none;
+  text-align: right;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  color: #e8eaf2;
+  font-variant-numeric: tabular-nums;
+}
+
+.foot {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* Custom wallpaper picker: the 默认壁纸 chip (the time × scheme rotation) plus
+   one thumbnail per directory file (a click pins that file as the static
+   wallpaper, its × deletes it, ＋ uploads a new one). */
+
+.thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 2px 0 10px;
+}
+
+.thumbHint {
+  margin: 2px 0 10px;
+  color: #9aa1b5;
+  font-size: 11px;
+}
+
+.thumb {
+  position: relative;
+  box-sizing: border-box;
+  width: 56px;
+  height: 36px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background-size: cover;
+  background-position: center;
+  cursor: pointer;
+}
+
+.thumb:hover {
+  border-color: rgba(255, 255, 255, 0.45);
+}
+
+.thumbActive {
+  border-color: #f5b942;
+  box-shadow: 0 0 0 1px #f5b942;
+}
+
+.thumbClose {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: #2a2d38;
+  color: #dfe3ee;
+  font-size: 10px;
+  line-height: 13px;
+  text-align: center;
+  padding: 0;
+  cursor: pointer;
+}
+
+.thumbClose:hover {
+  background: #d84a4a;
+  color: #fff;
+}
+
+.thumbAdd {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: #b6bccd;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.thumbAdd:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.ghost {
+  flex: 1;
+  padding: 5px 0;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: #dfe3ee;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: inherit;
+}
+
+.ghost:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* 主题色: colour-only chips. The swatch is the label, so each one is just a disc
+   with a thin rim (white needs the rim to read on a dark panel) and the active
+   one wears a ring instead of a colour change. */
+.swatches {
+  display: flex;
+  gap: 8px;
+  margin: 2px 0 2px;
+}
+
+.swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+}
+
+.swatch:hover {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.swatchActive {
+  border-color: #f5b942;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25), 0 0 0 2px rgba(245, 185, 66, 0.55);
+}

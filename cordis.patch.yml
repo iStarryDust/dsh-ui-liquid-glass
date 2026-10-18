@@ -1,0 +1,6 @@
+# The liquid-glass skin bundle: one row. The client package mounts the
+# draggable liquid-glass capsule and the sun-button property panel; the host
+# half is an empty apply so the row exists in the host tree.
+- insert:
+    - id: ui-liquid-glass
+      name: '@deepseek-ai/dsh-client-ui-liquid-glass'

@@ -1,0 +1,53 @@
+{
+  "name": "@starry/dsh-ui-liquid-glass",
+  "description": "全液态玻璃界面 ui-liquid-glass + 壁纸/主题/控件控制器",
+  "version": "0.1.0",
+  "icon": "./icon.svg",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./locale/*.json": "./locale/*.json",
+    "./package.json": "./package.json",
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
+  "files": [
+    "locale/*.json",
+    "icon.svg",
+    "LICENSE",
+    "lib/index.js",
+    "cordis.patch.yml",
+    "lib/types/**/*.d.ts",
+    "packages/client-ui-liquid-glass/package.json",
+    "packages/client-ui-liquid-glass/lib/index.js",
+    "packages/client-ui-liquid-glass/lib/client.js",
+    "packages/client-ui-liquid-glass/lib/types/**/*.d.ts",
+    "packages/client-ui-liquid-glass/assets/**"
+  ],
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "ui",
+    "glass",
+    "liquid-glass",
+    "theme",
+    "wallpaper"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-client-ui-liquid-glass": "file:./packages/client-ui-liquid-glass"
+  }
+}
