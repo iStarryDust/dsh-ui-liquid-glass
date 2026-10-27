@@ -137,6 +137,9 @@ export class FlowHighlight {
    *  workspace list must not show a lens of its own: the dialog covers and
    *  dims it, and two live capsules read as a defect. */
   private settingsOpen = false
+  /** The dialog's root element, cached: the attribute query used to run on
+   *  every sync, and a session switch syncs dozens of times. */
+  private settingsRoot: Element | null = null
   /** The zone a landing mark belongs to, while a flight is in the air. */
   private pending: { zone: string, el: Element } | null = null
   /** The zone the lens currently flies in (radius + filter priority). */
@@ -213,7 +216,11 @@ export class FlowHighlight {
     // container mounted, so `querySelector` alone reported "settings is open"
     // forever and the workspace list lost its glass. The signal is a VISIBLE
     // active nav cell inside a VISIBLE dialog.
-    const dialog = document.querySelector(SETTINGS_ZONE)
+    let dialog = this.settingsRoot
+    if (dialog === null || !dialog.isConnected) {
+      dialog = document.querySelector(SETTINGS_ZONE)
+      this.settingsRoot = dialog
+    }
     const settingsGroup = FLOW_STOPS.find(group => group.zone === 'settings')
     const settingsStop = dialog === null || !hasBox(dialog) || settingsGroup === undefined
       ? null

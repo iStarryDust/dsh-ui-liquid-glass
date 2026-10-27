@@ -262,6 +262,8 @@ export class SkinEngine {
   private readonly surfaces = new Map<LayerId, LayerSurface>()
   private readonly refractions = new Map<LayerId, LayerRefraction>()
   private readonly attachedHosts = new Map<LayerId, Element>()
+  /** The hook each bound host matched — the scan's fast path (attachHosts). */
+  private readonly boundHook = new Map<LayerId, string>()
   private readonly nestedWarned = new Set<LayerId>()
   /** The host each element layer's nesting was last checked on (see
    *  warnIfNested — the walk is not worth repeating for the same element). */
@@ -285,6 +287,8 @@ export class SkinEngine {
   /** One shared flush per frame for every surface (read pass, then write
    *  pass): see {@link flushSurfaces}. */
   private flushScheduled = false
+  /** One flow sync per frame, asked for by a selection flip. */
+  private flowSyncScheduled = false
   /** Last backdrop chain built per layer. `backdropChain()` is a pure function
    *  of the layer id and its five glass knobs — memoising it takes twelve
    *  string builds off every apply that changes none of them. */
@@ -397,19 +401,37 @@ export class SkinEngine {
   }
 
   /**
-   * Run a host scan on the leading edge, and coalesce whatever arrives during
-   * the spacing window into one trailing scan. A flip of a reveal attribute
-   * additionally opens a short per-frame burst, because the reveal it starts
-   * travels through a CSS transition that fires nothing (see REVEAL_BURST_MS).
+   * Notice a host mutation. The scan itself is DEFERRED to the next frame: this
+   * callback fires inside the shell's own commit, and a scan reads layout —
+   * running it here forced a style/layout flush in the middle of the shell's
+   * render, which is what made a workspace switch feel like it had to wind up
+   * before the new view appeared. A selection flip additionally retargets the
+   * flow on the next frame, so the lens starts moving with the shell's paint
+   * instead of waiting out the scan throttle.
    */
   private onHostMutation(records: MutationRecord[]): void {
+    let selection = false
     for (const record of records) {
-      if (record.type === 'attributes' && REVEAL_ATTRIBUTES.includes(record.attributeName ?? '')) {
+      if (record.type !== 'attributes') continue
+      const name = record.attributeName ?? ''
+      if (REVEAL_ATTRIBUTES.includes(name)) {
         this.startRevealBurst()
-        break
+        continue
       }
+      if (name === 'aria-selected' || name === 'aria-current') selection = true
     }
+    if (selection) this.requestFlowSync()
     this.scheduleHostScan()
+  }
+
+  /** One flow sync per frame, asked for by a selection flip (see onHostMutation). */
+  private requestFlowSync(): void {
+    if (this.flowSyncScheduled) return
+    this.flowSyncScheduled = true
+    requestAnimationFrame(() => {
+      this.flowSyncScheduled = false
+      this.flow?.sync()
+    })
   }
 
   private startRevealBurst(): void {
@@ -447,16 +469,14 @@ export class SkinEngine {
   }
 
   private scheduleHostScan(): void {
-    const elapsed = performance.now() - this.lastScanAt
-    if (elapsed >= HOST_SCAN_INTERVAL_MS) {
-      this.runHostScan()
-      return
-    }
     if (this.hostScanTimer !== undefined) return
+    const wait = Math.max(0, HOST_SCAN_INTERVAL_MS - (performance.now() - this.lastScanAt))
     this.hostScanTimer = setTimeout(() => {
       this.hostScanTimer = undefined
-      this.runHostScan()
-    }, HOST_SCAN_INTERVAL_MS - elapsed)
+      // Never inside the caller's turn: `runHostScan` reads layout, and the
+      // caller may well be the shell's own commit (see onHostMutation).
+      requestAnimationFrame(() => this.runHostScan())
+    }, wait)
   }
 
   /**
@@ -505,6 +525,13 @@ export class SkinEngine {
         // scan costs, and a scan runs on every coalesced DOM mutation.
         if (layer.placement === 'element'
           && current.isConnected && current.getAttribute('aria-hidden') !== 'true') continue
+        // Fast path for a host bound by the layer's PREFERRED hook: it is still
+        // that hook's match, so the scan's query list could only return it
+        // again. One `isDisplayable` instead of `querySelectorAll` per hook —
+        // this is the path every scan takes while a session switches.
+        const hook = this.boundHook.get(layer.id)
+        if (hook !== undefined && hook === layer.hosts[0]
+          && current.isConnected && current.matches(hook) && isDisplayable(current)) continue
         // A surface always follows its PREFERRED hook: the shell demotes a
         // closed pane to an inert keep-alive in place and mounts the control
         // that replaces it elsewhere, so holding on to the old element would
@@ -515,6 +542,7 @@ export class SkinEngine {
         const keep = layer.placement !== 'element' && current === host
         if (keep) continue
         this.attachedHosts.delete(layer.id)
+        this.boundHook.delete(layer.id)
         this.surfaces.get(layer.id)?.detach()
         this.refractions.get(layer.id)?.detach()
         this.bind(layer, host)
@@ -530,6 +558,10 @@ export class SkinEngine {
   private bind(layer: LayerSpec, host: Element | null): void {
     if (host === null) return
     this.attachedHosts.set(layer.id, host)
+    // The hook this host actually matched: the scan's fast path uses it to skip
+    // the query list on every later pass (see attachHosts).
+    const hook = layer.hosts.find(selector => host.matches(selector)) ?? layer.hosts[0]
+    if (hook !== undefined) this.boundHook.set(layer.id, hook)
     const surface = this.surfaces.get(layer.id)
     if (surface !== undefined) {
       surface.attach(host, this.surfacesHost!)
@@ -828,11 +860,22 @@ export class SkinEngine {
    * lens this frame, not after the next sweep.
    */
   private currentKey: string | null = null
+  /** The sidebar root, cached for the document-level click listener. */
+  private sidebarRoot: Element | null = null
+  /** The row currently carrying `data-lg-current` (see markCurrent). */
+  private markedRow: Element | null = null
 
   private readonly onRowClick = (event: MouseEvent): void => {
     const target = event.target as Element | null
     if (target === null) return
-    const sidebar = document.querySelector(COLUMN.sidebar)
+    // The sidebar's root is cached: this listener is on the document (capture),
+    // so it runs for EVERY click in the app, and a document query per click is
+    // stolen straight from the click's own latency budget.
+    let sidebar = this.sidebarRoot
+    if (sidebar === null || !sidebar.isConnected) {
+      sidebar = document.querySelector(COLUMN.sidebar)
+      this.sidebarRoot = sidebar
+    }
     if (sidebar === null || !sidebar.contains(target)) return
     const row = target.closest('[role="treeitem"]') ?? target.closest('li')
     if (row === null || !sidebar.contains(row)) return
@@ -844,12 +887,16 @@ export class SkinEngine {
   }
 
   private markCurrent(row: Element): void {
-    for (const marked of document.querySelectorAll('[data-lg-current]')) marked.removeAttribute('data-lg-current')
+    // The marked row is remembered, so moving the marker is one attribute write
+    // instead of a document-wide `[data-lg-current]` sweep per click.
+    if (this.markedRow !== null && this.markedRow !== row) this.markedRow.removeAttribute('data-lg-current')
+    this.markedRow = row
     row.setAttribute('data-lg-current', '')
     this.currentKey = rowIdentity(row)
-    // A click IS a stop change: retarget the flow this frame, not after the
-    // next coalesced scan.
-    this.flow?.sync()
+    // A click IS a stop change: retarget the flow on the next frame (never in
+    // the click handler itself — a sync measures the row, and a forced layout
+    // inside the click is exactly the pause the switch used to show).
+    this.requestFlowSync()
   }
 
   /**
@@ -858,13 +905,17 @@ export class SkinEngine {
    * re-mark it.
    */
   private restoreMarker(): void {
-    if (this.currentKey === null || document.querySelector('[data-lg-current]') !== null) return
+    if (this.currentKey === null) return
+    // The remembered node answers this without a document query on every DOM
+    // batch (this observer sees the whole chat list stream).
+    if (this.markedRow !== null && this.markedRow.isConnected) return
     const sidebar = document.querySelector(COLUMN.sidebar)
     if (sidebar === null) return
     for (const candidate of sidebar.querySelectorAll('[role="treeitem"], li')) {
       if (rowIdentity(candidate) !== this.currentKey) continue
       if (candidate.querySelector('[role="treeitem"], li') !== null) continue
       candidate.setAttribute('data-lg-current', '')
+      this.markedRow = candidate
       return
     }
   }

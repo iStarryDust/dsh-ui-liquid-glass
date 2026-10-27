@@ -1,7 +1,7 @@
 {
   "name": "@istarry/dsh-ui-liquid-glass",
   "description": "全液态玻璃界面 ui-liquid-glass + 壁纸/主题/控件控制器",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "icon": "./icon.svg",
   "type": "module",
   "main": "lib/index.js",

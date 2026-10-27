@@ -18,6 +18,9 @@ export declare class FlowHighlight {
      *  workspace list must not show a lens of its own: the dialog covers and
      *  dims it, and two live capsules read as a defect. */
     private settingsOpen;
+    /** The dialog's root element, cached: the attribute query used to run on
+     *  every sync, and a session switch syncs dozens of times. */
+    private settingsRoot;
     /** The zone a landing mark belongs to, while a flight is in the air. */
     private pending;
     /** The zone the lens currently flies in (radius + filter priority). */

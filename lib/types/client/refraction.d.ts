@@ -10,6 +10,8 @@ export declare class LayerRefraction {
     private grainOn;
     private host;
     private observer;
+    /** The element the observer is currently observing (see attach/detach). */
+    private observed;
     /** Where to measure when the filtered element has no box of its own — a
      *  suppressed sheet is `display: none` and tracks its host's box instead
      *  (see LayerSurface.hostBox). */

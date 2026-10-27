@@ -103,6 +103,8 @@ export class LayerRefraction {
   private grainOn = false
   private host: Element | null = null
   private observer: ResizeObserver | undefined
+  /** The element the observer is currently observing (see attach/detach). */
+  private observed: Element | null = null
   /** Where to measure when the filtered element has no box of its own — a
    *  suppressed sheet is `display: none` and tracks its host's box instead
    *  (see LayerSurface.hostBox). */
@@ -246,9 +248,13 @@ export class LayerRefraction {
     }
     this.host = host
     this.fallbackBox = fallbackBox
-    this.observer?.disconnect()
-    this.observer = new ResizeObserver(() => this.queueRegenerate('box'))
+    // One observer for the instance's whole life: a session switch re-hosts the
+    // highlight filter on every row, and allocating a fresh ResizeObserver per
+    // switch is pure garbage (the observe/unobserve pair is the whole job).
+    if (this.observed !== null && this.observed !== host) this.observer?.unobserve(this.observed)
+    if (this.observer === undefined) this.observer = new ResizeObserver(() => this.queueRegenerate('box'))
     this.observer.observe(host)
+    this.observed = host
     this.regenerate()
   }
 
@@ -258,8 +264,8 @@ export class LayerRefraction {
    * than the previous host's lens, stretched over the wrong box.
    */
   detach(): void {
-    this.observer?.disconnect()
-    this.observer = undefined
+    if (this.observed !== null) this.observer?.unobserve(this.observed)
+    this.observed = null
     this.host = null
     this.fallbackBox = undefined
     this.lastSignature = null
@@ -300,6 +306,7 @@ export class LayerRefraction {
   destroy(): void {
     this.observer?.disconnect()
     this.observer = undefined
+    this.observed = null
     this.clearSettle()
     this.svg.remove()
   }

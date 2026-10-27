@@ -107,6 +107,8 @@ export declare class SkinEngine {
     private readonly surfaces;
     private readonly refractions;
     private readonly attachedHosts;
+    /** The hook each bound host matched — the scan's fast path (attachHosts). */
+    private readonly boundHook;
     private readonly nestedWarned;
     /** The host each element layer's nesting was last checked on (see
      *  warnIfNested — the walk is not worth repeating for the same element). */
@@ -130,6 +132,8 @@ export declare class SkinEngine {
     /** One shared flush per frame for every surface (read pass, then write
      *  pass): see {@link flushSurfaces}. */
     private flushScheduled;
+    /** One flow sync per frame, asked for by a selection flip. */
+    private flowSyncScheduled;
     /** Last backdrop chain built per layer. `backdropChain()` is a pure function
      *  of the layer id and its five glass knobs — memoising it takes twelve
      *  string builds off every apply that changes none of them. */
@@ -145,12 +149,17 @@ export declare class SkinEngine {
     /** Inject the stylesheet, mount the wallpaper and every layer, enable the skin. */
     mount(): void;
     /**
-     * Run a host scan on the leading edge, and coalesce whatever arrives during
-     * the spacing window into one trailing scan. A flip of a reveal attribute
-     * additionally opens a short per-frame burst, because the reveal it starts
-     * travels through a CSS transition that fires nothing (see REVEAL_BURST_MS).
+     * Notice a host mutation. The scan itself is DEFERRED to the next frame: this
+     * callback fires inside the shell's own commit, and a scan reads layout —
+     * running it here forced a style/layout flush in the middle of the shell's
+     * render, which is what made a workspace switch feel like it had to wind up
+     * before the new view appeared. A selection flip additionally retargets the
+     * flow on the next frame, so the lens starts moving with the shell's paint
+     * instead of waiting out the scan throttle.
      */
     private onHostMutation;
+    /** One flow sync per frame, asked for by a selection flip (see onHostMutation). */
+    private requestFlowSync;
     private startRevealBurst;
     /** Whether any layer the scan could bind is still unbound. */
     private hasUnboundLayer;
@@ -258,6 +267,10 @@ export declare class SkinEngine {
      * lens this frame, not after the next sweep.
      */
     private currentKey;
+    /** The sidebar root, cached for the document-level click listener. */
+    private sidebarRoot;
+    /** The row currently carrying `data-lg-current` (see markCurrent). */
+    private markedRow;
     private readonly onRowClick;
     private markCurrent;
     /**
