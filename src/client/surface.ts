@@ -89,6 +89,8 @@ export class LayerSurface {
   private resizeObserver: ResizeObserver | undefined
   private attributeObserver: MutationObserver | undefined
   private scheduled = false
+  /** Set whenever something could move this sheet; cleared by a commit. */
+  private dirty = true
   private mounted = false
   /** Set while another layer's sheet fully covers this one: the surface stays
    *  bound (its box keeps tracking) but paints nothing, so the two glasses
@@ -249,8 +251,19 @@ export class LayerSurface {
     this.element.remove()
   }
 
+  /**
+   * Whether this surface still owes a stamp. The engine's ordinary flush only
+   * measures the surfaces that asked for one (resize, attribute flip, re-bind,
+   * knob paint); the sweep and the reveal burst pass `all` and re-measure
+   * everything regardless.
+   */
+  needsStamp(): boolean {
+    return this.dirty
+  }
+
   /** Coalesce resize bursts and attribute flurries to one shared flush per frame. */
   private queueSync(): void {
+    this.dirty = true
     if (this.scheduled) return
     this.scheduled = true
     requestAnimationFrame(() => {
@@ -302,15 +315,26 @@ export class LayerSurface {
   }
 
   /** READ phase — everything that forces layout lives here, and the engine
-   *  runs it for every surface before any of them writes (see SurfacePlan). */
-  measure(): SurfacePlan {
+   *  runs it for every surface before any of them writes (see SurfacePlan).
+   *  @param quick - Skip the visibility probe (the reveal burst's per-frame
+   *                 geometry tracking; see the rect check below). */
+  measure(quick = false): SurfacePlan {
     const host = this.host
     if (this.placement === 'inside') {
       if (host === null || !host.isConnected || this.suppressed) return PLAN_HIDE
       return PLAN_INSIDE
     }
-    if (host === null || this.suppressed || !isDisplayable(host)) return PLAN_HIDE
+    if (host === null || this.suppressed) return PLAN_HIDE
+    // `quick` is the reveal burst's mode: the sheet has to follow the column
+    // edge EVERY frame (the track eases, so a sheet left on last frame's box is
+    // visibly behind), but re-checking visibility per surface per frame means a
+    // `getComputedStyle` — the one call that forces the document's style to be
+    // resolved again, right after our own commit dirtied it. The rect read is
+    // needed for the geometry anyway, and a collapsed host reports 0×0, so the
+    // quick path still hides what must be hidden.
+    if (!quick && !isDisplayable(host)) return PLAN_HIDE
     const rect = host.getBoundingClientRect()
+    if (rect.width < 1 || rect.height < 1) return PLAN_HIDE
     return {
       kind: 'place',
       left: Math.round(rect.left),
@@ -322,6 +346,7 @@ export class LayerSurface {
 
   /** WRITE phase — only what changed since the last commit is stamped. */
   commit(plan: SurfacePlan): void {
+    this.dirty = false
     const style = this.element.style
     if (plan.kind === 'hide') {
       if (this.applied.kind !== 'hide') style.display = 'none'

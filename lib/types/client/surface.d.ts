@@ -68,6 +68,8 @@ export declare class LayerSurface {
     private resizeObserver;
     private attributeObserver;
     private scheduled;
+    /** Set whenever something could move this sheet; cleared by a commit. */
+    private dirty;
     private mounted;
     /** Set while another layer's sheet fully covers this one: the surface stays
      *  bound (its box keeps tracking) but paints nothing, so the two glasses
@@ -124,6 +126,13 @@ export declare class LayerSurface {
     setSuppressed(suppressed: boolean): void;
     update(tint: string, backdrop: string, radius: string, shadow: string): void;
     destroy(): void;
+    /**
+     * Whether this surface still owes a stamp. The engine's ordinary flush only
+     * measures the surfaces that asked for one (resize, attribute flip, re-bind,
+     * knob paint); the sweep and the reveal burst pass `all` and re-measure
+     * everything regardless.
+     */
+    needsStamp(): boolean;
     /** Coalesce resize bursts and attribute flurries to one shared flush per frame. */
     private queueSync;
     /**
@@ -135,8 +144,10 @@ export declare class LayerSurface {
     private prepareHost;
     private releaseHost;
     /** READ phase — everything that forces layout lives here, and the engine
-     *  runs it for every surface before any of them writes (see SurfacePlan). */
-    measure(): SurfacePlan;
+     *  runs it for every surface before any of them writes (see SurfacePlan).
+     *  @param quick - Skip the visibility probe (the reveal burst's per-frame
+     *                 geometry tracking; see the rect check below). */
+    measure(quick?: boolean): SurfacePlan;
     /** WRITE phase — only what changed since the last commit is stamped. */
     commit(plan: SurfacePlan): void;
 }

@@ -172,7 +172,9 @@ export declare class SkinEngine {
      * read-write-read-write, which forced a fresh layout for each of them.
      */
     private requestFlush;
-    /** Read every surface's box first, then commit them all. */
+    /** Read every surface's box first, then commit them all.
+     *  @param all - Re-measure even surfaces that did not ask (the sweep's net).
+     *  @param quick - Skip the per-surface visibility probe (see measure). */
     private flushSurfaces;
     private runHostScan;
     /** Resolve every layer's host and (re)bind its surface and refraction map. */

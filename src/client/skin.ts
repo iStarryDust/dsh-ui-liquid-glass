@@ -394,7 +394,8 @@ export class SkinEngine {
       // there anyway: skip the pass rather than queue work nobody sees.
       if (document.hidden) return
       this.attachHosts()
-      this.flushSurfaces()
+      // The safety net: every surface, full visibility check.
+      this.flushSurfaces(true)
     }, 1500)
     this.startWallpaperClock()
     this.startSchemeWatch()
@@ -453,7 +454,11 @@ export class SkinEngine {
       // re-stamped; a host that gets replaced later is the sweep's and the
       // mutation observer's business.
       if (this.hasUnboundLayer()) this.attachHosts()
-      this.flushSurfaces()
+      // Every surface must follow the easing track, but only its BOX is read:
+      // the visibility probe (one getComputedStyle per surface, the call that
+      // re-resolves the document's style just after we dirtied it) is what the
+      // quick flag drops. The sweep below still does the full check.
+      this.flushSurfaces(true, true)
       requestAnimationFrame(tick)
     }
     requestAnimationFrame(tick)
@@ -495,11 +500,14 @@ export class SkinEngine {
     })
   }
 
-  /** Read every surface's box first, then commit them all. */
-  private flushSurfaces(): void {
+  /** Read every surface's box first, then commit them all.
+   *  @param all - Re-measure even surfaces that did not ask (the sweep's net).
+   *  @param quick - Skip the per-surface visibility probe (see measure). */
+  private flushSurfaces(all = false, quick = false): void {
     const plans: Array<{ surface: LayerSurface, plan: SurfacePlan }> = []
     for (const surface of this.surfaces.values()) {
-      plans.push({ surface, plan: surface.measure() })
+      if (!all && !surface.needsStamp()) continue
+      plans.push({ surface, plan: surface.measure(quick) })
     }
     for (const entry of plans) entry.surface.commit(entry.plan)
   }
@@ -507,6 +515,10 @@ export class SkinEngine {
   private runHostScan(): void {
     this.lastScanAt = performance.now()
     this.attachHosts()
+    // A DOM change can move a host WITHOUT resizing it (a banner appears, a
+    // sibling grows): re-read every box so the sheets stay glued, but in quick
+    // mode — the visibility probe belongs to the sweep, not to every mutation.
+    this.flushSurfaces(true, true)
   }
 
   /** Resolve every layer's host and (re)bind its surface and refraction map. */
