@@ -41,7 +41,7 @@ import { FLOW_KNOBS, GLASS_KNOBS, type KnobKey } from './knobs.ts'
 export type LayerPlacement = 'element' | 'behind' | 'inside'
 
 /** Identifier of a glass layer; also the `--lg-<id>-*` variable namespace. */
-export type LayerId = 'sidebar' | 'center' | 'rightbar' | 'page' | 'home' | 'input' | 'question' | 'convheader' | 'highlight' | 'newchat' | 'buttons' | 'menu'
+export type LayerId = 'sidebar' | 'center' | 'rightbar' | 'page' | 'input' | 'question' | 'convheader' | 'highlight' | 'newchat' | 'buttons' | 'menu'
 
 /** One layer's knob values. */
 export type LayerValues = Record<string, number>
@@ -117,10 +117,11 @@ const CONVERSATION_HEADER =
  *   would otherwise each get a glass sheet.
  * - `heroGate` — the agent-suite entry pages (助理档案/助理记忆 and any future
  *   gate page) render inside the conversation slot under one outermost gate
- *   container. The SAME gate component is the app's HOME hero, so this hook is
- *   guarded by the shell's own panel-open mark — the sidebar's active panel row
- *   (`aria-current='page'`), which exists only while an entry page is up; the
- *   unguarded gate is the home hero's own layer (首页).
+ *   container. That hook is guarded by the shell's own panel-open mark — the
+ *   sidebar's active panel row (`aria-current='page'`), which exists only while
+ *   an entry page is up. The unguarded case (the app's default page) used to
+ *   have its own 首页 layer; it was removed — that page does not exist in the
+ *   shell, so the layer never bound to anything.
  */
 const PAGE_IN_CENTER = [
   `${COLUMN.center} [class*='page']`,
@@ -141,14 +142,6 @@ const PANEL_OPEN = `[class*='sidebarCol'] [aria-current='page']`
 
 const SUITE_PAGE_GATE =
   `body:has(${PANEL_OPEN}) ${COLUMN.center} [class*='heroGate']:not([class*='heroGate'] [class*='heroGate'])`
-
-/**
- * The home hero: the gate container the app shows on its default page — the
- * same component an entry page renders, but with no sidebar panel active. Its
- * own layer so the home look tunes separately from the popped-up pages.
- */
-const HOME_HERO =
-  `body:not(:has(${PANEL_OPEN})) ${COLUMN.center} [class*='heroGate']:not([class*='heroGate'] [class*='heroGate'])`
 
 /**
  * The right column's own box: the docked panel the shell anchors to the frame's
@@ -203,9 +196,15 @@ export const FLOW_STOPS: readonly FlowStop[] = [
   {
     zone: 'sidebar',
     selectors: [
+      // ARIA selection FIRST: the workspace tree marks the OPEN chat with
+      // `aria-selected`, so this is the authoritative answer both at boot and
+      // when a session appears without a row click (新会话). The click marker
+      // below is a fallback for lists that expose no selection state — it is
+      // written by the last click, so it goes stale whenever a session opens by
+      // any other route, and it used to win over the truth.
+      `${COLUMN.sidebar} [aria-selected='true']${NOT_NEW_CHAT_ROW}`,
       `${COLUMN.sidebar} [aria-current='page']${NOT_NEW_CHAT_ROW}`,
       `${COLUMN.sidebar} [data-lg-current]${NOT_NEW_CHAT_ROW}`,
-      `${COLUMN.sidebar} [aria-selected='true']${NOT_NEW_CHAT_ROW}`,
     ],
   },
 ]
@@ -396,9 +395,10 @@ export const LAYERS: readonly LayerSpec[] = [
     defaults: {
       ...DEFAULT_GLASS,
       radius: 10,
-      // 10px, not the shared 20 (2026-10-13.28): the column is read all day, and
-      // 20 read as a smear rather than a pane.
-      glassBlur: 10,
+      // 2px (retuned 2026-10-27): the column is read all day, and a wide blur
+      // read as a smear rather than a pane.
+      glassBlur: 2,
+      edgeSoftness: 70,
     },
     tint: whiteTint(TINT_SCALE),
     rim: true,
@@ -433,8 +433,10 @@ export const LAYERS: readonly LayerSpec[] = [
     defaults: {
       ...DEFAULT_GLASS,
       radius: 10,
-      // 10px like the sidebar (2026-10-13.28): a docked pane reads as glass, not smear.
-      glassBlur: 10,
+      // 2px like the sidebar (retuned 2026-10-27): a docked pane reads as glass,
+      // not smear.
+      glassBlur: 2,
+      edgeSoftness: 70,
     },
     tint: whiteTint(TINT_SCALE),
     rim: true,
@@ -451,30 +453,12 @@ export const LAYERS: readonly LayerSpec[] = [
       radius: 0,
       brightness: 0.8,
       rimStrength: 0,
-      // 10px like the columns (2026-10-13.28).
-      glassBlur: 10,
+      // 4px (retuned 2026-10-27).
+      glassBlur: 4,
     },
     tint: whiteTint(TINT_SCALE),
     rim: true,
     // A page opens inside a column, so its sheet paints over that column's.
-    stack: 1,
-  },
-  {
-    id: 'home',
-    label: '首页',
-    placement: 'behind',
-    schemeGlass: true,
-    hosts: [HOME_HERO],
-    knobs: GLASS_KNOBS,
-    defaults: {
-      ...DEFAULT_GLASS,
-      radius: 12,
-      brightness: 1.1,
-      rimStrength: 2,
-    },
-    tint: whiteTint(TINT_SCALE),
-    rim: true,
-    // The home hero covers a column, so its sheet paints over that column's.
     stack: 1,
   },
   {
@@ -522,11 +506,10 @@ export const LAYERS: readonly LayerSpec[] = [
     rim: true,
   },
   {
-    // 圆角 0: the header strip sits flush against the column's top and side
-    // edges — the shell paints it square, so rounding would tear its corners
-    // away from the window edge it is anchored to.
-    // 'inside' for the same reason as the composer card: header buttons are
-    // 按钮 capsules and must not be nested in the strip's own filter.
+    // 'inside' because header buttons are 按钮 capsules: while the strip carried
+    // the filter itself they were nested in it and rendered as black plates.
+    // 圆角 stays at the shared 20 — the tuned configuration (2026-10-27) rounds
+    // the header, and the strip's corners read as glass above the column's.
     id: 'convheader',
     label: '对话头',
     placement: 'inside',
@@ -534,7 +517,6 @@ export const LAYERS: readonly LayerSpec[] = [
     knobs: GLASS_KNOBS,
     defaults: {
       ...DEFAULT_GLASS,
-      radius: 0,
       edgeSoftness: 70,
       glassBlur: 2,
       brightness: 1.1,
@@ -558,16 +540,16 @@ export const LAYERS: readonly LayerSpec[] = [
     // The highlight keeps its coloured shaping: blue at 75% saturation (the
     // derived lightness lands on its ~62%). The pre-registry stored that colour
     // as `hue`; applySaved folds it into tintHue. The motion values are the
-    // sample's tuned defaults (see NEUTRAL), restated here so 重置 returns
-    // exactly to them.
+    // tuned flight (2026-10-27): a stiffer spring (300) so the capsule arrives
+    // fast, no glassBlur of its own so the rows' sharpness carries through.
     defaults: {
       ...DEFAULT_GLASS,
-      edgeSoftness: 80,
-      glassBlur: 40,
+      edgeSoftness: 90,
+      glassBlur: 0,
       brightness: 1.6,
       tintSaturation: 1,
       rimStrength: 2,
-      flowStiffness: 120,
+      flowStiffness: 300,
       flowDamping: 0.65,
       flowStretch: 0.3,
       flowDroplet: 0,

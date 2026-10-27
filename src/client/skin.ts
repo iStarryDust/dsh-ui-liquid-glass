@@ -17,7 +17,7 @@ import { COLUMN, LAYERS, defaultValues, NEUTRAL, SCHEME_GLASS, setThemeWash, typ
 import { FlowHighlight } from './flow-lens.ts'
 import { rimShadowCss, ringShadowCss } from './liquid-glass.ts'
 import { LayerRefraction } from './refraction.ts'
-import { isDisplayable, LayerSurface, RIM_SHADOW } from './surface.ts'
+import { isDisplayable, LayerSurface, RIM_SHADOW, type SurfacePlan } from './surface.ts'
 import { listWallpapers, wallpaperUrl } from './wallpaper-store.ts'
 import skinCss from './skin.css?inline'
 
@@ -282,6 +282,13 @@ export class SkinEngine {
   /** The time mode's half-minute bucket check. */
   private schemeObserver: MutationObserver | undefined
   private wallpaperClock: ReturnType<typeof setInterval> | undefined
+  /** One shared flush per frame for every surface (read pass, then write
+   *  pass): see {@link flushSurfaces}. */
+  private flushScheduled = false
+  /** Last backdrop chain built per layer. `backdropChain()` is a pure function
+   *  of the layer id and its five glass knobs — memoising it takes twelve
+   *  string builds off every apply that changes none of them. */
+  private readonly backdropCache = new Map<string, { key: string, chain: string }>()
   /**
    * The ONE shared layer state: the property panel's rows write this object and
    * every apply() consumes it. Handing out two loaded copies would fork the
@@ -320,7 +327,14 @@ export class SkinEngine {
         // A released surface whose host becomes renderable again asks for a
         // host scan — that is the one path a rebind can follow when the shell
         // hid the host by a mechanism no observer watches (see surface.ts).
-        this.surfaces.set(layer.id, new LayerSurface(layer.id, layer.rim === true, layer.stack ?? 0, layer.placement, () => this.scheduleHostScan()))
+        this.surfaces.set(layer.id, new LayerSurface(
+          layer.id,
+          layer.rim === true,
+          layer.stack ?? 0,
+          layer.placement,
+          () => this.scheduleHostScan(),
+          () => this.requestFlush(),
+        ))
       }
     }
 
@@ -372,8 +386,11 @@ export class SkinEngine {
 
     this.runHostScan()
     this.sweepTimer = setInterval(() => {
+      // A hidden tab shows nothing that could be stale, and rAF is throttled
+      // there anyway: skip the pass rather than queue work nobody sees.
+      if (document.hidden) return
       this.attachHosts()
-      for (const surface of this.surfaces.values()) surface.sync()
+      this.flushSurfaces()
     }, 1500)
     this.startWallpaperClock()
     this.startSchemeWatch()
@@ -414,7 +431,7 @@ export class SkinEngine {
       // re-stamped; a host that gets replaced later is the sweep's and the
       // mutation observer's business.
       if (this.hasUnboundLayer()) this.attachHosts()
-      for (const surface of this.surfaces.values()) surface.sync()
+      this.flushSurfaces()
       requestAnimationFrame(tick)
     }
     requestAnimationFrame(tick)
@@ -440,6 +457,31 @@ export class SkinEngine {
       this.hostScanTimer = undefined
       this.runHostScan()
     }, HOST_SCAN_INTERVAL_MS - elapsed)
+  }
+
+  /**
+   * Ask for one shared surface flush on the next frame. Every surface that
+   * needs re-stamping routes here instead of scheduling its own rAF, so the
+   * frame runs a single READ pass (all boxes measured) followed by a single
+   * WRITE pass (only changed properties stamped) — no per-surface
+   * read-write-read-write, which forced a fresh layout for each of them.
+   */
+  private requestFlush(): void {
+    if (this.flushScheduled) return
+    this.flushScheduled = true
+    requestAnimationFrame(() => {
+      this.flushScheduled = false
+      this.flushSurfaces()
+    })
+  }
+
+  /** Read every surface's box first, then commit them all. */
+  private flushSurfaces(): void {
+    const plans: Array<{ surface: LayerSurface, plan: SurfacePlan }> = []
+    for (const surface of this.surfaces.values()) {
+      plans.push({ surface, plan: surface.measure() })
+    }
+    for (const entry of plans) entry.surface.commit(entry.plan)
   }
 
   private runHostScan(): void {
@@ -502,15 +544,14 @@ export class SkinEngine {
   }
 
   /**
-   * A full-column sheet (页面, 首页) sits directly on its column's own glass —
+   * A full-column sheet (页面) sits directly on its column's own glass —
    * stacking two glasses doubles the refraction and milks the doubled tints,
    * and turning the covered column's knobs would visibly change the sheet on
    * top. While a covering layer is bound, the centre surface keeps tracking
    * its box but paints nothing; lifting the cover restores it unchanged.
    */
   private syncColumnCover(): void {
-    const covered = this.attachedHosts.has('page') || this.attachedHosts.has('home')
-    this.surfaces.get('center')?.setSuppressed(covered)
+    this.surfaces.get('center')?.setSuppressed(this.attachedHosts.has('page'))
   }
 
   /** First host hook that resolves, in the layer's declared order. */
@@ -589,7 +630,19 @@ export class SkinEngine {
       // consistent with what the panel shows.
       const values = effectiveValues(layer, state)
       const tint = layer.tint(values)
-      const backdrop = backdropChain(layer, values)
+      // `backdropChain()` reads exactly these six knobs and the layer id, and
+      // nothing else — memoising it takes twelve string builds off every apply
+      // that leaves the glass alone (a scheme flip, the wallpaper clock).
+      const backdropKey = `${values.refraction ?? 0}|${values.glassBlur ?? 0}|${values.contrast ?? 1}`
+        + `|${values.brightness ?? 1}|${values.saturation ?? 1}|${values.grain ?? 0}`
+      const memo = this.backdropCache.get(layer.id)
+      let backdrop: string
+      if (memo !== undefined && memo.key === backdropKey) {
+        backdrop = memo.chain
+      } else {
+        backdrop = backdropChain(layer, values)
+        this.backdropCache.set(layer.id, { key: backdropKey, chain: backdrop })
+      }
       const radius = `${values.radius ?? NEUTRAL.radius}px`
       // The rim shading plus the decorative ring, one box-shadow string: the
       // surfaces stamp it inline and the element layers read it as their
@@ -783,7 +836,10 @@ export class SkinEngine {
     if (sidebar === null || !sidebar.contains(target)) return
     const row = target.closest('[role="treeitem"]') ?? target.closest('li')
     if (row === null || !sidebar.contains(row)) return
-    this.markCurrent(row)
+    // A PARENT row (workspace group, pinned header) wraps the real rows:
+    // marking it on every expand/collapse is what parked the glass on the
+    // header. Only a leaf row is a stop.
+    if (row.querySelector('[role="treeitem"], li') === null) this.markCurrent(row)
     this.scheduleHostScan()
   }
 

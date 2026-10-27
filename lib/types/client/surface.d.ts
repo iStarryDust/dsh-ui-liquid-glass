@@ -40,6 +40,26 @@ export declare const RIM_SHADOW = "0 4px 8px rgba(0, 0, 0, 0.25), 0 -10px 25px i
  * slides off through a transform, which leaves its box unchanged).
  */
 export declare function isDisplayable(element: Element): boolean;
+/**
+ * What a surface wants to be painted as this frame.
+ *
+ * The two phases are split so the engine can run ONE read pass over every
+ * surface and then ONE write pass: reading a host's box forces layout, writing
+ * a sheet's box invalidates it, and interleaving the two — which is what a
+ * per-surface stamp did — forces a fresh layout per surface (twelve of them,
+ * twice per second, plus every frame of a reveal burst).
+ */
+export type SurfacePlan = {
+    readonly kind: 'hide';
+} | {
+    readonly kind: 'inside';
+} | {
+    readonly kind: 'place';
+    readonly left: number;
+    readonly top: number;
+    readonly width: number;
+    readonly height: number;
+};
 export declare class LayerSurface {
     readonly element: HTMLDivElement;
     /** How this surface is mounted ('behind' the app or inside its host). */
@@ -62,7 +82,16 @@ export declare class LayerSurface {
      *  again (or about to be), and only a host scan can rebind the surface —
      *  the release disconnected everything else that watched it. */
     private readonly onHostSignal;
-    constructor(layer: string, rim: boolean, stack: number, placement: 'behind' | 'inside', onHostSignal?: () => void);
+    /** Engine callback that asks for a shared flush (see {@link SurfacePlan}). */
+    private readonly onInvalidate;
+    /** What the last commit painted — the diff base. An unchanged plan writes
+     *  nothing at all, so a sweep over twelve still surfaces costs twelve
+     *  comparisons instead of forty-eight style writes. */
+    private applied;
+    /** Last values handed to {@link update}, so a re-apply on an unrelated
+     *  scheme flip stops rewriting four properties per surface. */
+    private appliedPaint;
+    constructor(layer: string, rim: boolean, stack: number, placement: 'behind' | 'inside', onHostSignal?: () => void, onInvalidate?: () => void);
     /** Track `host`; a 'behind' surface joins `parent`, an 'inside' one mounts
      *  as the host's first child. */
     attach(host: Element, parent: HTMLElement): void;
@@ -95,7 +124,7 @@ export declare class LayerSurface {
     setSuppressed(suppressed: boolean): void;
     update(tint: string, backdrop: string, radius: string, shadow: string): void;
     destroy(): void;
-    /** Coalesce resize bursts and attribute flurries to one check per frame. */
+    /** Coalesce resize bursts and attribute flurries to one shared flush per frame. */
     private queueSync;
     /**
      * Give the host what an absolutely positioned, negative-z child needs, and
@@ -105,6 +134,10 @@ export declare class LayerSurface {
      */
     private prepareHost;
     private releaseHost;
-    private stamp;
+    /** READ phase — everything that forces layout lives here, and the engine
+     *  runs it for every surface before any of them writes (see SurfacePlan). */
+    measure(): SurfacePlan;
+    /** WRITE phase — only what changed since the last commit is stamped. */
+    commit(plan: SurfacePlan): void;
 }
 //# sourceMappingURL=surface.d.ts.map

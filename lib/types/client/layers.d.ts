@@ -38,7 +38,7 @@ import { type KnobKey } from './knobs.ts';
  */
 export type LayerPlacement = 'element' | 'behind' | 'inside';
 /** Identifier of a glass layer; also the `--lg-<id>-*` variable namespace. */
-export type LayerId = 'sidebar' | 'center' | 'rightbar' | 'page' | 'home' | 'input' | 'question' | 'convheader' | 'highlight' | 'newchat' | 'buttons' | 'menu';
+export type LayerId = 'sidebar' | 'center' | 'rightbar' | 'page' | 'input' | 'question' | 'convheader' | 'highlight' | 'newchat' | 'buttons' | 'menu';
 /** One layer's knob values. */
 export type LayerValues = Record<string, number>;
 /**

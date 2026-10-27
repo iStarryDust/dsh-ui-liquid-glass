@@ -12,6 +12,12 @@ export declare class FlowHighlight {
     private readonly drop;
     /** Per-zone stop state, keyed by the FLOW_STOPS zone names. */
     private readonly zones;
+    /** The stop each zone resolved to last time (see {@link pickZone}). */
+    private readonly pickCache;
+    /** Whether the settings dialog currently owns a stop. While it is open the
+     *  workspace list must not show a lens of its own: the dialog covers and
+     *  dims it, and two live capsules read as a defect. */
+    private settingsOpen;
     /** The zone a landing mark belongs to, while a flight is in the air. */
     private pending;
     /** The zone the lens currently flies in (radius + filter priority). */
@@ -24,6 +30,16 @@ export declare class FlowHighlight {
     private motion;
     private running;
     private lastTime;
+    /** Last geometry stamped on the lens: the destination box is constant for a
+     *  whole flight, so re-writing it every frame was pure style invalidation. */
+    private lensBox;
+    /** Last values stamped on the droplet, same reason — and its position goes
+     *  through `transform` (compositor) instead of `left`/`top` (layout). */
+    private dropShown;
+    private dropDiameter;
+    private dropX;
+    private dropY;
+    private dropOpacity;
     /** Whether the lens is on screen mid-flight. */
     private shown;
     /** Engine callback: a marked row becomes the refraction filter's host, so

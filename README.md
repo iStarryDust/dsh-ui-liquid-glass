@@ -10,8 +10,8 @@ saturation → rim), so any layer at any setting is the same material as the sam
 
 ## What you get
 
-- **13 adjustable glass regions** — sidebar, conversation column, right rail, in-column pages, home
-  hero, composer, question card, conversation header, selection highlight, new-session rows, composer
+- **12 adjustable glass regions** — sidebar, conversation column, right rail, in-column pages,
+  composer, question card, conversation header, selection highlight, new-session rows, composer
   controls, dialogs & menus, and the draggable sample capsule.
 - **14 knobs per region** — tint, tint saturation, concentration, blur, contrast, brightness,
   saturation, rim strength, displacement scale, chromatic aberration and friends. Every knob actually

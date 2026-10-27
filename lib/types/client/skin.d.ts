@@ -127,6 +127,13 @@ export declare class SkinEngine {
     /** The time mode's half-minute bucket check. */
     private schemeObserver;
     private wallpaperClock;
+    /** One shared flush per frame for every surface (read pass, then write
+     *  pass): see {@link flushSurfaces}. */
+    private flushScheduled;
+    /** Last backdrop chain built per layer. `backdropChain()` is a pure function
+     *  of the layer id and its five glass knobs — memoising it takes twelve
+     *  string builds off every apply that changes none of them. */
+    private readonly backdropCache;
     /**
      * The ONE shared layer state: the property panel's rows write this object and
      * every apply() consumes it. Handing out two loaded copies would fork the
@@ -148,13 +155,23 @@ export declare class SkinEngine {
     /** Whether any layer the scan could bind is still unbound. */
     private hasUnboundLayer;
     private scheduleHostScan;
+    /**
+     * Ask for one shared surface flush on the next frame. Every surface that
+     * needs re-stamping routes here instead of scheduling its own rAF, so the
+     * frame runs a single READ pass (all boxes measured) followed by a single
+     * WRITE pass (only changed properties stamped) — no per-surface
+     * read-write-read-write, which forced a fresh layout for each of them.
+     */
+    private requestFlush;
+    /** Read every surface's box first, then commit them all. */
+    private flushSurfaces;
     private runHostScan;
     /** Resolve every layer's host and (re)bind its surface and refraction map. */
     private attachHosts;
     /** Bind one layer to `host` (null: leave it unbound). */
     private bind;
     /**
-     * A full-column sheet (页面, 首页) sits directly on its column's own glass —
+     * A full-column sheet (页面) sits directly on its column's own glass —
      * stacking two glasses doubles the refraction and milks the doubled tints,
      * and turning the covered column's knobs would visibly change the sheet on
      * top. While a covering layer is bound, the centre surface keeps tracking

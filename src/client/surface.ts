@@ -48,22 +48,38 @@ const WATCHED_ATTRIBUTES = [
  */
 export function isDisplayable(element: Element): boolean {
   if (!element.isConnected) return false
-  // The element's own computed visibility already resolves inheritance and any
-  // descendant override, so the box-tree checks below only need to look at the
-  // attributes the shell flips — on the host itself as well as on its ancestors
-  // (a collapsed panel marks the panel, not its children).
+  // One computed read for the element itself: `visibility` inherits, `display`
+  // does not — and an ancestor's `display: none` collapses this element's own
+  // box to 0×0, so the rect check at the end already rejects that case. The
+  // remaining ancestor-only signal is the attribute pair the shell flips, and
+  // `closest()` answers it in one native walk instead of a
+  // `getComputedStyle()` per level (that walk ran on every stamp of every
+  // surface — see the sweep in skin.ts).
   const style = getComputedStyle(element)
   if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse') return false
-  for (let node: Element | null = element; node !== null; node = node.parentElement) {
-    if (node.getAttribute('aria-hidden') === 'true' || node.hasAttribute('hidden')) return false
-    if (node !== element && getComputedStyle(node).display === 'none') return false
-    if (node === document.body) break
-  }
+  if (element.closest('[hidden], [aria-hidden="true"]') !== null) return false
   const rect = element.getBoundingClientRect()
   return rect.width >= 1 && rect.height >= 1
     && rect.right > 0 && rect.bottom > 0
     && rect.left < window.innerWidth && rect.top < window.innerHeight
 }
+
+/**
+ * What a surface wants to be painted as this frame.
+ *
+ * The two phases are split so the engine can run ONE read pass over every
+ * surface and then ONE write pass: reading a host's box forces layout, writing
+ * a sheet's box invalidates it, and interleaving the two — which is what a
+ * per-surface stamp did — forces a fresh layout per surface (twelve of them,
+ * twice per second, plus every frame of a reveal burst).
+ */
+export type SurfacePlan =
+  | { readonly kind: 'hide' }
+  | { readonly kind: 'inside' }
+  | { readonly kind: 'place', readonly left: number, readonly top: number, readonly width: number, readonly height: number }
+
+const PLAN_HIDE: SurfacePlan = { kind: 'hide' }
+const PLAN_INSIDE: SurfacePlan = { kind: 'inside' }
 
 export class LayerSurface {
   readonly element: HTMLDivElement
@@ -87,15 +103,35 @@ export class LayerSurface {
    *  again (or about to be), and only a host scan can rebind the surface —
    *  the release disconnected everything else that watched it. */
   private readonly onHostSignal: (() => void) | undefined
+  /** Engine callback that asks for a shared flush (see {@link SurfacePlan}). */
+  private readonly onInvalidate: (() => void) | undefined
+  /** What the last commit painted — the diff base. An unchanged plan writes
+   *  nothing at all, so a sweep over twelve still surfaces costs twelve
+   *  comparisons instead of forty-eight style writes. */
+  private applied: SurfacePlan = PLAN_HIDE
+  /** Last values handed to {@link update}, so a re-apply on an unrelated
+   *  scheme flip stops rewriting four properties per surface. */
+  private appliedPaint: string | null = null
 
-  constructor(layer: string, rim: boolean, stack: number, placement: 'behind' | 'inside', onHostSignal?: () => void) {
+  constructor(
+    layer: string,
+    rim: boolean,
+    stack: number,
+    placement: 'behind' | 'inside',
+    onHostSignal?: () => void,
+    onInvalidate?: () => void,
+  ) {
     this.placement = placement
     this.onHostSignal = onHostSignal
+    this.onInvalidate = onInvalidate
     this.element = document.createElement('div')
     this.element.dataset.lgSurface = layer
     this.element.dataset.lgSurfaceMode = placement
     this.element.style.display = 'none'
     this.element.style.zIndex = placement === 'inside' ? '-1' : String(stack)
+    // No box-shadow, border or descendant can escape: style/layout containment
+    // narrows the invalidation this sheet causes without touching its paint.
+    this.element.style.contain = 'layout style'
     if (rim) this.element.style.boxShadow = RIM_SHADOW
   }
 
@@ -128,6 +164,9 @@ export class LayerSurface {
         this.prepareHost(host)
       }
       this.mounted = false
+      // A new host is a new box: drop the diff base so the next commit stamps
+      // geometry even when the numbers happen to match the old host's.
+      this.applied = PLAN_HIDE
     }
     if (this.placement === 'behind') {
       if (!this.mounted) {
@@ -153,6 +192,7 @@ export class LayerSurface {
   detach(): void {
     this.attributeObserver?.disconnect()
     this.attributeObserver = undefined
+    this.applied = PLAN_HIDE
     if (this.placement === 'inside') {
       this.element.remove()
       this.releaseHost()
@@ -195,6 +235,9 @@ export class LayerSurface {
   }
 
   update(tint: string, backdrop: string, radius: string, shadow: string): void {
+    const paint = `${tint}\u0000${backdrop}\u0000${radius}\u0000${shadow}`
+    if (paint === this.appliedPaint) return
+    this.appliedPaint = paint
     this.element.style.background = tint
     this.element.style.backdropFilter = backdrop
     this.element.style.borderRadius = radius
@@ -206,13 +249,18 @@ export class LayerSurface {
     this.element.remove()
   }
 
-  /** Coalesce resize bursts and attribute flurries to one check per frame. */
+  /** Coalesce resize bursts and attribute flurries to one shared flush per frame. */
   private queueSync(): void {
     if (this.scheduled) return
     this.scheduled = true
     requestAnimationFrame(() => {
       this.scheduled = false
-      this.stamp()
+      if (this.onInvalidate !== undefined) {
+        this.onInvalidate()
+        return
+      }
+      // No engine attached (a bare surface in a test): paint immediately.
+      this.commit(this.measure())
     })
   }
 
@@ -253,31 +301,49 @@ export class LayerSurface {
     if (this.host !== null) delete (this.host as HTMLElement).dataset.lgGlassHost
   }
 
-  private stamp(): void {
+  /** READ phase — everything that forces layout lives here, and the engine
+   *  runs it for every surface before any of them writes (see SurfacePlan). */
+  measure(): SurfacePlan {
     const host = this.host
     if (this.placement === 'inside') {
-      if (host === null) return
-      if (!host.isConnected || this.suppressed) {
-        this.element.style.display = 'none'
-        return
-      }
-      this.element.style.display = ''
+      if (host === null || !host.isConnected || this.suppressed) return PLAN_HIDE
+      return PLAN_INSIDE
+    }
+    if (host === null || this.suppressed || !isDisplayable(host)) return PLAN_HIDE
+    const rect = host.getBoundingClientRect()
+    return {
+      kind: 'place',
+      left: Math.round(rect.left),
+      top: Math.round(rect.top),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+    }
+  }
+
+  /** WRITE phase — only what changed since the last commit is stamped. */
+  commit(plan: SurfacePlan): void {
+    const style = this.element.style
+    if (plan.kind === 'hide') {
+      if (this.applied.kind !== 'hide') style.display = 'none'
+      this.applied = plan
+      return
+    }
+    if (plan.kind === 'inside') {
+      if (this.applied.kind !== 'inside') style.display = ''
+      this.applied = plan
+      const host = this.host
       // The host's own content can be re-rendered wholesale (React may drop or
       // re-order children it did not create): re-assert the sheet's place, or
       // the glass silently disappears while the host stays on screen.
-      if (host.firstElementChild !== this.element) host.prepend(this.element)
+      if (host !== null && host.firstElementChild !== this.element) host.prepend(this.element)
       return
     }
-    if (host === null || this.suppressed || !isDisplayable(host)) {
-      this.element.style.display = 'none'
-      return
-    }
-    const rect = host.getBoundingClientRect()
-    const style = this.element.style
-    style.display = ''
-    style.left = `${Math.round(rect.left)}px`
-    style.top = `${Math.round(rect.top)}px`
-    style.width = `${Math.round(rect.width)}px`
-    style.height = `${Math.round(rect.height)}px`
+    if (this.applied.kind !== 'place') style.display = ''
+    const prev = this.applied
+    if (prev.kind !== 'place' || prev.left !== plan.left) style.left = `${plan.left}px`
+    if (prev.kind !== 'place' || prev.top !== plan.top) style.top = `${plan.top}px`
+    if (prev.kind !== 'place' || prev.width !== plan.width) style.width = `${plan.width}px`
+    if (prev.kind !== 'place' || prev.height !== plan.height) style.height = `${plan.height}px`
+    this.applied = plan
   }
 }
