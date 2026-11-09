@@ -407,6 +407,10 @@ body[data-lg-skin] [data-shortcut-modal='settings'] [class*='navCell'][data-lg-f
      The dialog element itself has no filter while a sheet is bound — see the
      `[role='dialog']:not([data-lg-glass-host])` rule below. */
   background: var(--lg-highlight-tint) !important;
+  /* Same reason as the sidebar mark below: the shell paints its own fill to the
+     padding edge (`background-clip: padding-box`) behind a transparent inline
+     border, and the mark must not paint past it. */
+  background-clip: padding-box !important;
   backdrop-filter: var(--lg-highlight-backdrop) !important;
   border-radius: var(--lg-highlight-radius);
   box-shadow: var(--lg-highlight-rim, var(--lg-rim-shadow));
@@ -421,6 +425,23 @@ body[data-lg-skin] [data-shortcut-modal='settings'] [class*='navCell'][data-lg-f
    landing lens, which carries the same string — the handoff stays
    pixel-identical). */
 body[data-lg-skin] [class*='sidebarCol'] [data-lg-flow-target][data-lg-flow-target] {
+  /* dsh 0.2.2 reserves 3px of transparent inline border on every sidebar row
+     (`border-inline: var(--dsh-sidebar-paint-inset) solid transparent`) and clips
+     the shell's own fill to the padding box. The mark's backdrop-filter is laid
+     over the whole BORDER box, so that reserved strip refracts while carrying no
+     tint — a bare ring that hugs the rounded ends and shows the raw wallpaper.
+     (background-clip cannot reach a filter, so it is no help here.)
+     
+     The repair pulls the mark's paint in by exactly the reserved amount: negative
+     inline margins give the box back to the layout, and matching padding keeps
+     the row's contents where they were. The strip is then outside the element, so
+     neither the tint nor the filter paints on it — the pill ends where the row's
+     own paint ends, like the shell draws it. `--dsh-sidebar-paint-inset` is unset
+     on shells before 0.2.2, and the 0px fallback makes this rule inert there. */
+  --lg-row-inset: var(--dsh-sidebar-paint-inset, 0px);
+  margin-inline: calc(-1 * var(--lg-row-inset)) !important;
+  padding-inline: var(--lg-row-inset) !important;
+  border-inline-width: 0 !important;
   background: var(--lg-highlight-tint) !important;
   backdrop-filter: var(--lg-highlight-backdrop) !important;
   border-radius: var(--lg-highlight-radius);
